@@ -704,9 +704,13 @@ function renderModal() {
           </div>
           <div class="field">
             <label>分组</label>
-            <input type="text" id="f-group" list="group-options" value="${esc(draft.group || '')}" placeholder="例如 内网服务 / 监控">
-            <datalist id="group-options">${[...new Set(S.entries.map(e => (e.group || '').trim()).filter(Boolean))].map(g => `<option value="${esc(g)}"></option>`).join('')}</datalist>
-            <div class="hint">只用于面板整理和筛选，不会写进 Caddyfile。</div>
+            <select id="f-group">
+              <option value="" ${!draft.group ? 'selected' : ''}>无分组</option>
+              ${groupOptionsHtml()}
+              <option value="__new">＋ 新建分组…</option>
+            </select>
+            <input type="text" id="f-group-new" style="display:none;margin-top:8px" placeholder="输入新分组名，例如 监控" maxlength="40">
+            <div class="hint">分组只用于面板整理和筛选，不会写进 Caddyfile。</div>
           </div>
           <div class="field"><label class="check"><input type="checkbox" id="f-enabled" ${draft.enabled ? 'checked' : ''}> 启用</label></div>
         </div>
@@ -756,13 +760,41 @@ function renderModal() {
       renderModal();
     });
   });
+
+  const gsel = el.querySelector('#f-group');
+  if (gsel) {
+    const gnew = el.querySelector('#f-group-new');
+    const sync = () => {
+      const isNew = gsel.value === '__new';
+      gnew.style.display = isNew ? 'block' : 'none';
+      if (isNew) gnew.focus();
+    };
+    gsel.addEventListener('change', sync);
+    if (gsel.value === '__new') gnew.style.display = 'block';
+  }
+
   el.querySelector('#btn-save').addEventListener('click', saveDraft);
+}
+
+function groupOptionsHtml() {
+  const groups = [...new Set(S.entries.map(e => (e.group || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'zh'));
+  const cur = (draft.group || '').trim();
+  if (cur && !groups.includes(cur)) groups.push(cur);
+  return groups.map(g =>
+    `<option value="${esc(g)}"${g === cur ? ' selected' : ''}>${esc(g)}</option>`
+  ).join('');
 }
 
 function collectDraft() {
   if (!document.getElementById('pane-details')) return;
   draft.name = document.getElementById('f-name').value.trim();
-  draft.group = document.getElementById('f-group').value.trim();
+  const gsel = document.getElementById('f-group');
+  if (gsel) {
+    draft.group = gsel.value === '__new'
+      ? (document.getElementById('f-group-new').value || '').trim()
+      : gsel.value;
+  }
   draft.hosts = document.getElementById('f-hosts').value
     .split(/[\n,]/).map(s => s.trim()).filter(Boolean);
   draft.enabled = document.getElementById('f-enabled').checked;
