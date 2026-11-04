@@ -1,0 +1,10 @@
+# build output and image tarballs
+/build/
+/caddy-panel
+*.exe
+
+# local panel data (contains the dev HMAC secret)
+testdata/panel.json
+
+# backups written when applying config
+Caddyfile.bak-*

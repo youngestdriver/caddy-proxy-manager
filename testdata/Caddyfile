@@ -1,0 +1,168 @@
+{
+	admin 0.0.0.0:2019 {
+		origins 127.0.0.1:2019 0.0.0.0:2019
+	}
+	acme_dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+}
+
+*.example.com, example.com {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+
+	# PVE
+	@pve host pve.example.com pve.example.net
+	handle @pve {
+		reverse_proxy https://192.0.2.10:8006 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	@haowei host haowei.example.com haowei.example.net
+	handle @haowei {
+		reverse_proxy https://192.0.2.11:8006 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	@pbs host pbs.example.com pbs.example.net
+	handle @pbs {
+		reverse_proxy https://192.0.2.12:8007 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	@tbs host tbs.example.com tbs.example.net
+	handle @tbs {
+		reverse_proxy https://192.0.2.12:443 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	@bmc host bmc.example.com bmc.example.net
+	handle @bmc {
+		reverse_proxy https://192.0.2.13:443 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	@comic host comic.example.com comic2.example.com comic3.example.com comic.example.net
+	handle @comic {
+		reverse_proxy 192.0.2.30:13001
+	}
+
+	@emby host emby.example.com emby.example.net
+	handle @emby {
+		reverse_proxy 192.0.2.30:8096
+	}
+
+	@fnos host fnos.example.com fnos.example.net
+	handle @fnos {
+		reverse_proxy https://192.0.2.31:5666 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+
+	@metatube host metatube.example.com metatube.example.net
+	handle @metatube {
+		reverse_proxy 192.0.2.32:18082
+	}
+
+	@qd host qd.example.com qd.example.net
+	handle @qd {
+		reverse_proxy 192.0.2.33:8923
+	}
+
+	@pt host pt.example.com pt.example.net
+	handle @pt {
+		reverse_proxy 192.0.2.34:23333
+	}
+
+	@couchdb host couchdb.example.com couchdb.example.net
+	handle @couchdb {
+		reverse_proxy 192.0.2.35:5984 {
+			transport http {
+				read_timeout 3600s
+				write_timeout 3600s
+			}
+		}
+	}
+
+	@gitea host gitea.example.com gitea.example.net
+	handle @gitea {
+		reverse_proxy 192.0.2.36:13008
+	}
+
+	@op host op.example.com op.example.net
+	handle @op {
+		reverse_proxy 192.0.2.37:80
+	}
+
+	@grafana host grafana.example.com grafana.example.net
+	handle @grafana {
+		reverse_proxy 192.0.2.38:3002
+	}
+
+	@prometheus host prometheus.example.com prometheus.example.net
+	handle @prometheus {
+		reverse_proxy 192.0.2.38:9090
+	}
+
+	@nas host nas.example.com nas.example.net
+	handle @nas {
+		reverse_proxy 192.0.2.40:5000
+	}
+
+	@webdav host webdav.example.com webdav.example.net
+	handle @webdav {
+		reverse_proxy 192.0.2.41:30035
+	}
+
+	@openlist host openlist.example.com openlist.example.net
+	handle @openlist {
+		reverse_proxy 192.0.2.41:5244
+	}
+
+	@frps host frps.example.com frps.example.net
+	handle @frps {
+		reverse_proxy 192.0.2.42:20000
+	}
+
+	@ntfy host ntfy.example.com ntfy.example.net
+	handle @ntfy {
+		reverse_proxy 192.0.2.43:2586
+	}
+
+	@registry host registry.example.com registry.example.net
+	handle @registry {
+		reverse_proxy 192.0.2.44:5000
+	}
+
+	@wiki host wiki.example.com wiki.example.net
+	handle @wiki {
+		reverse_proxy 192.0.2.45:3000
+	}
+
+	@home host home.example.com home.example.net
+	handle @home {
+		encode gzip
+		header / Strict-Transport-Security max-age=31536000
+		reverse_proxy 192.0.2.46:8080
+	}
+
+	handle {
+		respond 404
+	}
+}

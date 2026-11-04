@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Caddy Proxy Manager</title>
+<link rel="icon" type="image/svg+xml" href="/static/caddy.svg">
+<link rel="stylesheet" href="/static/style.css">
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('caddy-theme'); } catch (e) {}
+    if (t !== 'light' && t !== 'dark') {
+      t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    document.documentElement.dataset.theme = t;
+    document.documentElement.style.colorScheme = t;
+  })();
+</script>
+</head>
+<body>
+<div id="root"></div>
+<div id="toast" class="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
