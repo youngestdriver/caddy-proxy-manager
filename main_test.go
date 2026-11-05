@@ -72,6 +72,9 @@ func TestParseCurrentCaddyfile(t *testing.T) {
 		if found.Upstream != e.Upstream || found.Scheme != e.Scheme || len(found.Hosts) != len(e.Hosts) {
 			t.Fatalf("entry %s changed: %+v -> %+v", e.ID, e, *found)
 		}
+		if found.Extra != e.Extra {
+			t.Fatalf("entry %s extra changed: %q -> %q", e.ID, e.Extra, found.Extra)
+		}
 	}
 }
 

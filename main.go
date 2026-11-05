@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -169,6 +170,36 @@ func (p *Panel) adminPost(path, body string, timeout time.Duration) error {
 	return nil
 }
 
+// adminJSON calls the Caddy admin API and decodes a JSON object response.
+func (p *Panel) adminJSON(method, path, body string, timeout time.Duration) (map[string]interface{}, error) {
+	var rdr io.Reader
+	if body != "" {
+		rdr = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, p.adminURL+path, rdr)
+	if err != nil {
+		return nil, err
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "text/caddyfile")
+	}
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if resp.StatusCode >= 300 {
+		return nil, errors.New(extractError(data, resp.StatusCode))
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func extractError(data []byte, code int) string {
 	var payload struct {
 		Error string `json:"error"`
@@ -266,8 +297,13 @@ func render(s *Store) string {
 		if e.Scheme == "https" {
 			target = "https://" + e.Upstream
 		}
+		fmt.Fprintf(&b, "\t\treverse_proxy %s {\n", target)
+		// Without this, a reload sends a websocket close frame to every
+		// proxied connection and waits for the write. A half-dead client
+		// makes that write block for minutes, and Caddy holds its config
+		// lock the whole time, so /load never answers.
+		b.WriteString("\t\t\tstream_close_delay 1s\n")
 		if e.SkipVerify || e.ReadTimeout != "" || e.WriteTimeout != "" {
-			fmt.Fprintf(&b, "\t\treverse_proxy %s {\n", target)
 			b.WriteString("\t\t\ttransport http {\n")
 			if e.ReadTimeout != "" {
 				fmt.Fprintf(&b, "\t\t\t\tread_timeout %s\n", e.ReadTimeout)
@@ -278,10 +314,9 @@ func render(s *Store) string {
 			if e.SkipVerify {
 				b.WriteString("\t\t\t\ttls_insecure_skip_verify\n")
 			}
-			b.WriteString("\t\t\t}\n\t\t}\n")
-		} else {
-			fmt.Fprintf(&b, "\t\treverse_proxy %s\n", target)
+			b.WriteString("\t\t\t}\n")
 		}
+		b.WriteString("\t\t}\n")
 		if strings.TrimSpace(e.Extra) != "" {
 			b.WriteString(indentLines(e.Extra, 2))
 			b.WriteString("\n")
@@ -591,15 +626,14 @@ func (p *Panel) applyLocked() error {
 		p.saveStoreLocked()
 		return err
 	}
-	if err := p.adminPost("/load", text, 60*time.Second); err != nil {
-		// On this router Caddy can take ~20s to answer /load because it
-		// restarts its own admin endpoint while our request is in flight.
-		// A second identical load returns at once ("config is unchanged")
-		// if the first one already took effect.
-		if retryErr := p.adminPost("/load", text, 20*time.Second); retryErr != nil {
-			p.store.LastApply = ApplyResult{At: time.Now().Format(time.RFC3339), Ok: false, Err: err.Error()}
+	// A /load that never answers usually means Caddy applied the config but
+	// stalled shutting down the old one, so trust the running config over the
+	// HTTP response before rolling anything back.
+	if loadErr := p.adminPost("/load", text, 30*time.Second); loadErr != nil && !p.waitRunningMatches(text, 2*time.Minute) {
+		if retryErr := p.adminPost("/load", text, 30*time.Second); retryErr != nil && !p.waitRunningMatches(text, 30*time.Second) {
+			p.store.LastApply = ApplyResult{At: time.Now().Format(time.RFC3339), Ok: false, Err: loadErr.Error()}
 			p.saveStoreLocked()
-			return err
+			return loadErr
 		}
 	}
 	if data, err := os.ReadFile(p.caddyfilePath()); err == nil {
@@ -613,6 +647,38 @@ func (p *Panel) applyLocked() error {
 	p.store.LastApply = ApplyResult{At: time.Now().Format(time.RFC3339), Ok: true}
 	p.saveStoreLocked()
 	return nil
+}
+
+// waitRunningMatches polls until Caddy's running config equals the one the
+// given Caddyfile adapts to. A GET on /config/ blocks while a load is in
+// flight, so each attempt is bounded and the whole wait is capped by timeout.
+func (p *Panel) waitRunningMatches(text string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if p.runningMatches(text) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(3 * time.Second)
+	}
+}
+
+func (p *Panel) runningMatches(text string) bool {
+	adapted, err := p.adminJSON(http.MethodPost, "/adapt", text, 15*time.Second)
+	if err != nil {
+		return false
+	}
+	want, ok := adapted["result"]
+	if !ok {
+		return false
+	}
+	running, err := p.adminJSON(http.MethodGet, "/config/", "", 15*time.Second)
+	if err != nil {
+		return false
+	}
+	return reflect.DeepEqual(want, running)
 }
 
 // saveConfigLocked writes the rendered Caddyfile without reloading Caddy.
