@@ -149,13 +149,13 @@ func writeFileAtomic(path string, data []byte) error {
 
 // ---------- Caddy admin API ----------
 
-func (p *Panel) adminPost(path, body string) error {
+func (p *Panel) adminPost(path, body string, timeout time.Duration) error {
 	req, err := http.NewRequest(http.MethodPost, p.adminURL+path, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "text/caddyfile")
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("无法连接 Caddy admin API: %v", err)
@@ -585,15 +585,21 @@ func (p *Panel) apiState(w http.ResponseWriter, r *http.Request) {
 
 func (p *Panel) applyLocked() error {
 	text := render(&p.store)
-	if err := p.adminPost("/adapt", text); err != nil {
+	if err := p.adminPost("/adapt", text, 20*time.Second); err != nil {
 		p.store.LastApply = ApplyResult{At: time.Now().Format(time.RFC3339), Ok: false, Err: err.Error()}
 		p.saveStoreLocked()
 		return err
 	}
-	if err := p.adminPost("/load", text); err != nil {
-		p.store.LastApply = ApplyResult{At: time.Now().Format(time.RFC3339), Ok: false, Err: err.Error()}
-		p.saveStoreLocked()
-		return err
+	if err := p.adminPost("/load", text, 60*time.Second); err != nil {
+		// On this router Caddy can take ~20s to answer /load because it
+		// restarts its own admin endpoint while our request is in flight.
+		// A second identical load returns at once ("config is unchanged")
+		// if the first one already took effect.
+		if retryErr := p.adminPost("/load", text, 20*time.Second); retryErr != nil {
+			p.store.LastApply = ApplyResult{At: time.Now().Format(time.RFC3339), Ok: false, Err: err.Error()}
+			p.saveStoreLocked()
+			return err
+		}
 	}
 	if data, err := os.ReadFile(p.caddyfilePath()); err == nil {
 		backup := fmt.Sprintf("%s.bak-%s", p.caddyfilePath(), time.Now().Format("20060102-150405"))
@@ -606,6 +612,18 @@ func (p *Panel) applyLocked() error {
 	p.store.LastApply = ApplyResult{At: time.Now().Format(time.RFC3339), Ok: true}
 	p.saveStoreLocked()
 	return nil
+}
+
+// saveConfigLocked writes the rendered Caddyfile without reloading Caddy.
+// Used for panel-only changes such as entry ordering, where the order in
+// the running config has no effect on request handling.
+func (p *Panel) saveConfigLocked() error {
+	text := render(&p.store)
+	if err := writeFileAtomic(p.caddyfilePath(), []byte(text)); err != nil {
+		return err
+	}
+	p.store.FileHash = hashText(text)
+	return p.saveStoreLocked()
 }
 
 func (p *Panel) apiCreateEntry(w http.ResponseWriter, r *http.Request) {
@@ -790,10 +808,10 @@ func (p *Panel) apiReorder(w http.ResponseWriter, r *http.Request) {
 	}
 	old := p.store.Entries
 	p.store.Entries = out
-	if err := p.applyLocked(); err != nil {
+	if err := p.saveConfigLocked(); err != nil {
 		p.store.Entries = old
 		p.saveStoreLocked()
-		p.writeErr(w, 400, err.Error())
+		p.writeErr(w, 500, err.Error())
 		return
 	}
 	p.writeJSON(w, 200, map[string]bool{"ok": true})

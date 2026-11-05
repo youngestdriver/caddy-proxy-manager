@@ -819,6 +819,8 @@ async function saveDraft() {
   const btn = document.getElementById('btn-save');
   btn.disabled = true;
   btn.textContent = '应用中…';
+  let secs = 0;
+  const timer = setInterval(() => { secs += 1; btn.textContent = `应用中… ${secs}s`; }, 1000);
   try {
     if (draft.id) {
       await api('/api/entries/' + encodeURIComponent(draft.id), 'PUT', draft);
@@ -832,6 +834,8 @@ async function saveDraft() {
     btn.disabled = false;
     btn.textContent = '保存并应用';
     toast(err.message, 'err');
+  } finally {
+    clearInterval(timer);
   }
 }
 
