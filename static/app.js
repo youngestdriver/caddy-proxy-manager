@@ -817,7 +817,19 @@ async function saveDraft() {
   if (!draft.hosts.length) { toast('至少填一个域名', 'err'); activeTab = 'details'; renderModal(); return; }
   if (!draft.upstream) { toast('上游地址不能为空', 'err'); activeTab = 'forward'; renderModal(); return; }
   const btn = document.getElementById('btn-save');
+  const idleText = btn.textContent;
   btn.disabled = true;
+  btn.textContent = '检测上游…';
+  let chk = null;
+  try {
+    chk = await api('/api/check-upstream', 'POST', { scheme: draft.scheme, upstream: draft.upstream });
+  } catch (e) { /* check is best-effort */ }
+  if (chk && !chk.ok) {
+    btn.disabled = false;
+    btn.textContent = idleText;
+    if (!confirm(`上游 ${draft.upstream} 连不上：\n${chk.error}\n\n仍要保存并应用吗？`)) return;
+    btn.disabled = true;
+  }
   btn.textContent = '应用中…';
   let secs = 0;
   const timer = setInterval(() => { secs += 1; btn.textContent = `应用中… ${secs}s`; }, 1000);

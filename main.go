@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -742,6 +743,52 @@ func (p *Panel) apiPreview(w http.ResponseWriter, r *http.Request) {
 	p.writeJSON(w, 200, map[string]string{"caddyfile": text})
 }
 
+// apiCheckUpstream reports whether a TCP connection to the upstream can be
+// established. It is a fast reachability hint, not a full HTTP check.
+func (p *Panel) apiCheckUpstream(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Scheme   string `json:"scheme"`
+		Upstream string `json:"upstream"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		p.writeErr(w, 400, "请求格式错误")
+		return
+	}
+	addr, err := upstreamAddr(body.Upstream, body.Scheme)
+	if err != nil {
+		p.writeJSON(w, 200, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	conn, err := net.DialTimeout("tcp", addr, 2500*time.Millisecond)
+	if err != nil {
+		p.writeJSON(w, 200, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	conn.Close()
+	p.writeJSON(w, 200, map[string]interface{}{"ok": true, "address": addr})
+}
+
+func upstreamAddr(upstream, scheme string) (string, error) {
+	u := strings.TrimSpace(upstream)
+	if u == "" {
+		return "", errors.New("上游地址为空")
+	}
+	if strings.ContainsAny(u, " \t/") {
+		return "", errors.New("地址里不要带路径或空格")
+	}
+	host, port, err := net.SplitHostPort(u)
+	if err == nil {
+		if host == "" || port == "" {
+			return "", errors.New("地址格式应为 主机:端口")
+		}
+		return net.JoinHostPort(host, port), nil
+	}
+	if scheme == "https" {
+		return net.JoinHostPort(u, "443"), nil
+	}
+	return net.JoinHostPort(u, "80"), nil
+}
+
 func (p *Panel) apiImport(w http.ResponseWriter, r *http.Request) {
 	data, err := os.ReadFile(p.caddyfilePath())
 	if err != nil {
@@ -899,6 +946,7 @@ func main() {
 	mux.HandleFunc("PUT /api/entries/{id}", auth(p.apiUpdateEntry))
 	mux.HandleFunc("DELETE /api/entries/{id}", auth(p.apiDeleteEntry))
 	mux.HandleFunc("GET /api/preview", auth(p.apiPreview))
+	mux.HandleFunc("POST /api/check-upstream", auth(p.apiCheckUpstream))
 	mux.HandleFunc("POST /api/import", auth(p.apiImport))
 	mux.HandleFunc("POST /api/reorder", auth(p.apiReorder))
 	mux.HandleFunc("GET /api/caddyfile", auth(p.apiDownload))
