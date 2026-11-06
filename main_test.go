@@ -84,3 +84,22 @@ func TestCleanHosts(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestExpandHosts(t *testing.T) {
+	p := &Panel{store: Store{Suffixes: []string{"example.com", "example.net"}}}
+	got := p.expandHosts([]string{"abc", "x.y.z", "abc"})
+	want := []string{"abc.example.com", "abc.example.net", "x.y.z"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+
+	bare := &Panel{}
+	if out := bare.expandHosts([]string{"abc"}); len(out) != 1 || out[0] != "abc" {
+		t.Fatalf("no suffixes should keep hosts literal, got %v", out)
+	}
+}

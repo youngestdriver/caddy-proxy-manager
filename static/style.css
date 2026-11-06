@@ -205,6 +205,7 @@ table.table { width: 100%; border-collapse: collapse; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.host-preview:empty { display: none; }
 .chip {
   display: inline-block; background: var(--chip); color: var(--chip-ink);
   border-radius: 4px; padding: 2px 8px; font-size: 12px; line-height: 1.5; white-space: nowrap;

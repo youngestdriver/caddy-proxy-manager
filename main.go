@@ -54,6 +54,7 @@ type Store struct {
 	Global    string      `json:"global"`
 	SiteHosts string      `json:"site_hosts"`
 	TLSBlock  string      `json:"tls_block"`
+	Suffixes  []string    `json:"suffixes,omitempty"`
 	Entries   []Entry     `json:"entries"`
 	Secret    string      `json:"secret"`
 	FileHash  string      `json:"file_hash"`
@@ -605,6 +606,7 @@ func (p *Panel) apiState(w http.ResponseWriter, r *http.Request) {
 		Drift     bool        `json:"drift"`
 		Version   string      `json:"version"`
 		SiteHosts string      `json:"site_hosts"`
+		Suffixes  []string    `json:"suffixes"`
 		Global    string      `json:"global"`
 		LastApply ApplyResult `json:"last_apply"`
 	}
@@ -614,9 +616,41 @@ func (p *Panel) apiState(w http.ResponseWriter, r *http.Request) {
 		Drift:     drift,
 		Version:   os.Getenv("CADDY_VERSION"),
 		SiteHosts: s.SiteHosts,
+		Suffixes:  s.Suffixes,
 		Global:    s.Global,
 		LastApply: s.LastApply,
 	})
+}
+
+// apiSaveSettings stores panel-only settings. Nothing here reaches Caddy, so
+// no reload is triggered.
+func (p *Panel) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Suffixes []string `json:"suffixes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		p.writeErr(w, 400, "请求格式错误")
+		return
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, s := range body.Suffixes {
+		s = strings.ToLower(strings.Trim(strings.TrimSpace(s), "."))
+		if s == "" || strings.ContainsAny(s, " \t/") || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	p.mu.Lock()
+	p.store.Suffixes = out
+	err := p.saveStoreLocked()
+	p.mu.Unlock()
+	if err != nil {
+		p.writeErr(w, 500, "保存失败: "+err.Error())
+		return
+	}
+	p.writeJSON(w, 200, map[string]interface{}{"ok": true, "suffixes": out})
 }
 
 func (p *Panel) applyLocked() error {
@@ -715,6 +749,7 @@ func (p *Panel) apiCreateEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	e.Hosts = p.expandHosts(e.Hosts)
 	for _, x := range p.store.Entries {
 		if x.ID == e.ID {
 			p.writeErr(w, 400, "名称冲突，请换一个名称")
@@ -767,6 +802,7 @@ func (p *Panel) apiUpdateEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := p.store.Entries[idx]
+	e.Hosts = p.expandHosts(e.Hosts)
 	p.store.Entries[idx] = e
 	if err := p.applyLocked(); err != nil {
 		p.store.Entries[idx] = old
@@ -959,6 +995,34 @@ func cleanHosts(in []string) []string {
 	return out
 }
 
+// expandHosts turns a bare label into one host per configured suffix, so
+// typing "abc" yields abc.<suffix> for every entry in settings. Anything
+// containing a dot is taken literally. Callers must hold p.mu.
+func (p *Panel) expandHosts(hosts []string) []string {
+	if len(p.store.Suffixes) == 0 {
+		return hosts
+	}
+	out := make([]string, 0, len(hosts))
+	seen := map[string]bool{}
+	add := func(h string) {
+		if h == "" || seen[h] {
+			return
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	for _, h := range hosts {
+		if strings.Contains(h, ".") {
+			add(h)
+			continue
+		}
+		for _, suffix := range p.store.Suffixes {
+			add(h + "." + suffix)
+		}
+	}
+	return out
+}
+
 func main() {
 	listen := flag.String("listen", "127.0.0.1:8081", "listen address")
 	dir := flag.String("dir", "/etc/caddy", "directory containing Caddyfile")
@@ -1014,6 +1078,7 @@ func main() {
 	mux.HandleFunc("GET /api/preview", auth(p.apiPreview))
 	mux.HandleFunc("POST /api/check-upstream", auth(p.apiCheckUpstream))
 	mux.HandleFunc("POST /api/import", auth(p.apiImport))
+	mux.HandleFunc("PUT /api/settings", auth(p.apiSaveSettings))
 	mux.HandleFunc("POST /api/reorder", auth(p.apiReorder))
 	mux.HandleFunc("GET /api/caddyfile", auth(p.apiDownload))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

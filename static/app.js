@@ -1,6 +1,6 @@
 const S = {
   entries: [], upstreams: [], version: '', drift: false,
-  site_hosts: '', global: '', last_apply: {}, view: 'dashboard', filter: '',
+  site_hosts: '', suffixes: [], global: '', last_apply: {}, view: 'dashboard', filter: '',
   groupFilter: '__all'
 };
 
@@ -109,6 +109,22 @@ function absorb(data) {
   Object.assign(S, data);
   S.entries = S.entries || [];
   S.upstreams = S.upstreams || [];
+  S.suffixes = S.suffixes || [];
+}
+
+// expandHostList mirrors the server: a bare label becomes one host per
+// configured suffix, anything with a dot is used as-is.
+function expandHostList(list) {
+  const suffixes = S.suffixes || [];
+  if (!suffixes.length) return list.slice();
+  const out = [];
+  const seen = new Set();
+  const add = h => { if (h && !seen.has(h)) { seen.add(h); out.push(h); } };
+  for (const h of list) {
+    if (h.includes('.')) { add(h); continue; }
+    for (const s of suffixes) add(h + '.' + s);
+  }
+  return out;
 }
 
 function avatar(seed) {
@@ -320,6 +336,8 @@ function renderView() {
   if (S.view === 'settings') {
     const re = document.getElementById('btn-reimport');
     if (re) re.addEventListener('click', reimport);
+    const sfx = document.getElementById('btn-save-suffixes');
+    if (sfx) sfx.addEventListener('click', saveSuffixes);
   }
 }
 
@@ -553,6 +571,18 @@ function settingsHtml() {
       </div>
     </div>
 
+    <div class="card accent-lime">
+      <div class="card-head"><h2>域名后缀</h2><span class="card-sub">填短名时自动展开</span></div>
+      <div class="card-body">
+        <div class="field">
+          <label>后缀列表（每行一个）</label>
+          <textarea id="s-suffixes" placeholder="example.com&#10;example.net">${esc((S.suffixes || []).join('\n'))}</textarea>
+          <div class="hint">在「添加代理主机」里只填 abc 时，会生成 abc.后缀1、abc.后缀2……；填带点的完整域名则原样使用。留空即关闭短名展开。</div>
+        </div>
+        <button class="btn primary" id="btn-save-suffixes">保存后缀</button>
+      </div>
+    </div>
+
     <div class="card accent-violet">
       <div class="card-head"><h2>全局配置（只读）</h2><span class="card-sub">Caddyfile 顶部的 global 块</span></div>
       <div class="card-body"><pre class="code">${esc(S.global || '（无）')}</pre></div>
@@ -613,6 +643,18 @@ async function removeEntry(id) {
   }
 }
 
+async function saveSuffixes() {
+  const list = document.getElementById('s-suffixes').value
+    .split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+  try {
+    await api('/api/settings', 'PUT', { suffixes: list });
+    toast('后缀已保存', 'ok');
+    await refresh();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
 async function reimport() {
   if (!confirm('用磁盘上的 Caddyfile 覆盖面板数据？')) return;
   try {
@@ -667,8 +709,11 @@ function renderModal() {
           </div>
           <div class="field">
             <label>域名</label>
-            <textarea id="f-hosts" placeholder="comic.example.com&#10;comic.example.net">${esc((draft.hosts || []).join('\n'))}</textarea>
-            <div class="hint">每行一个，也支持逗号分隔。</div>
+            <textarea id="f-hosts" placeholder="comic&#10;comic.example.com">${esc((draft.hosts || []).join('\n'))}</textarea>
+            <div id="host-preview" class="chips host-preview"></div>
+            <div class="hint">每行一个，也支持逗号分隔。${S.suffixes.length
+              ? '只填短名（如 comic）会按设置里的后缀展开。'
+              : '想少打字，可以到「设置 → 域名后缀」配一组后缀。'}</div>
           </div>
           <div class="field">
             <label>分组</label>
@@ -741,7 +786,22 @@ function renderModal() {
     if (gsel.value === '__new') gnew.style.display = 'block';
   }
 
+  const hosts = el.querySelector('#f-hosts');
+  if (hosts) {
+    const box = el.querySelector('#host-preview');
+    const sync = () => renderHostPreview(hosts.value, box);
+    hosts.addEventListener('input', sync);
+    sync();
+  }
+
   el.querySelector('#btn-save').addEventListener('click', saveDraft);
+}
+
+function renderHostPreview(value, box) {
+  if (!box) return;
+  const raw = value.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+  const list = expandHostList(raw);
+  box.innerHTML = list.map(h => `<span class="chip">${esc(h)}</span>`).join('');
 }
 
 function groupOptionsHtml() {
