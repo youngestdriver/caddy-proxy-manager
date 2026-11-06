@@ -295,11 +295,6 @@ function renderView() {
   else if (S.view === 'hosts') view.innerHTML = hostsHtml();
   else view.innerHTML = settingsHtml();
 
-  if (S.view === 'dashboard') {
-    const all = document.getElementById('btn-all-hosts');
-    if (all) all.addEventListener('click', () => { S.view = 'hosts'; renderView(); });
-  }
-
   if (S.view === 'hosts') {
     const input = document.getElementById('host-search');
     const body = document.getElementById('hosts-table');
@@ -342,19 +337,6 @@ function dashboardHtml() {
     return up && up.fails > 0;
   }).length;
 
-  const rows = S.entries.slice(0, 10).map(e => {
-    const h = healthOf(e);
-    const st = e.enabled ? h : { cls: 'idle', text: '已停用' };
-    return `<tr>
-      <td>
-        <div class="src-name"><span class="src-label" title="${esc(e.name)}">${esc(e.name)}</span>${e.system ? '<span class="badge">系统</span>' : ''}</div>
-        <div class="chips">${hostChips(e.hosts)}</div>
-      </td>
-      <td><div class="dest" title="${esc(e.scheme + '://' + e.upstream)}"><span class="scheme">${esc(e.scheme || 'http')}://</span>${esc(e.upstream)}</div></td>
-      <td><span class="pill ${st.cls}"><span class="dot"></span>${esc(st.text)}</span></td>
-    </tr>`;
-  }).join('');
-
   return `
     <h1 class="page-title">概览</h1>
     <div class="stat-grid">
@@ -363,21 +345,7 @@ function dashboardHtml() {
       <div class="stat"><span class="stat-ico blue">${icon('check')}</span><span class="stat-text"><b>${enabled}</b> 个已启用</span></div>
       <div class="stat"><span class="stat-ico red">${icon('alert')}</span><span class="stat-text"><b>${failing}</b> 个上游异常</span></div>
     </div>
-    ${alertHtml()}
-    <div class="card accent-violet">
-      <div class="card-head">
-        <h2>上游状态</h2>
-        <span class="card-sub">来自 /reverse_proxy/upstreams</span>
-        <div class="head-tools"><button class="btn ghost" id="btn-all-hosts">查看全部</button></div>
-      </div>
-      <div class="table-wrap">
-        <table class="table up-table">
-          <colgroup><col style="width:46%"><col style="width:32%"><col style="width:22%"></colgroup>
-          <thead><tr><th>名称 / 域名</th><th>上游</th><th>状态</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="3" class="empty">暂无条目</td></tr>'}</tbody>
-        </table>
-      </div>
-    </div>`;
+    ${alertHtml()}`;
 }
 
 function hostsHtml() {

@@ -190,8 +190,6 @@ table.table { width: 100%; border-collapse: collapse; }
 .empty { padding: 46px 16px; text-align: center; color: var(--muted); font-size: 13.5px; }
 
 /* ---------- hosts table ---------- */
-.up-table { table-layout: fixed; }
-.up-table td { overflow: hidden; }
 .host-table { table-layout: fixed; min-width: 940px; }
 .host-table td { padding: 14px 16px; }
 .col-owner { width: 6%; }
